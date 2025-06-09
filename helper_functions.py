@@ -1,5 +1,6 @@
 from langchain.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_core.prompts import PromptTemplate
 from langchain_openai import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 from langchain_core.pydantic_v1 import BaseModel, Field
@@ -106,3 +107,59 @@ def encode_from_string(content, chunk_size=1000, chunk_overlap=200):
         raise RuntimeError(f'An error occured during the encoding process: {str(e)}')
 
     return vector_store
+
+
+def retrieve_context_per_question(question, chunks_query_retriever):
+    '''
+    Retrieves relevant context and unique URLs for a given question using the chunks query retriever.
+    Args:
+        question: The question for which to retrieve context and URLs.
+        chunks_query_retriever:
+
+    Returns:
+        A tuple containing:
+        - A string with the concatenated content of relevant documents.
+        - A list of unique URLs from the metadata of the relevant documents.
+    '''
+
+    # Retrieve relevant documents for the given question
+    docs = chunks_query_retriever.get_relevant_documents(question)
+
+    # Concatenate document content
+    context = [doc.page_content for doc in docs]
+
+    return context
+
+
+class QuestionAnswerFromContext(BaseModel):
+    '''
+    Model to generate an answer to a query based on a given context.
+
+    Attributes:
+        answer_based_on_content(str): The generated answer based on the context.
+    '''
+    answer_based_on_content: str = Field(description='Generates an answer to a query based on a given context.')
+
+
+def create_question_answer_from_context_chain(llm):
+    # Initialize the ChatOpenAI model with specific parameters
+    question_answer_from_context_llm = llm
+
+    # Define the prompt template for chain-of-thought reasoning
+    question_answer_prompt_template = '''
+    For the question below, provide a concise but suffice answer based ONLY on the provided context:
+    {context}
+    Question
+    {question}
+    '''
+
+    # Create a PromptTemplate object with the specified template and input variables
+    question_answer_from_context_prompt = PromptTemplate(
+        template=question_answer_prompt_template,
+        input_variables=['context', 'question'],
+    )
+
+    # Create a chain by combining the prompt template and the language model
+    question_answer_from_context_cot_chain = question_answer_from_context_prompt | question_answer_from_context_llm.with_structured_output(
+        QuestionAnswerFromContext)
+    return question_answer_from_context_cot_chain
