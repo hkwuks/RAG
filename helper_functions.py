@@ -163,3 +163,77 @@ def create_question_answer_from_context_chain(llm):
     question_answer_from_context_cot_chain = question_answer_from_context_prompt | question_answer_from_context_llm.with_structured_output(
         QuestionAnswerFromContext)
     return question_answer_from_context_cot_chain
+
+
+def answer_question_from_context(question, context, question_answer_from_context_chain):
+    '''
+    Answer a question using a given context by invoking a chain of reasoning.
+    Args:
+        question: The question to be answered.
+        context: The context to be used for answering the question.
+        question_answer_from_context_chain:
+
+    Returns:
+        A dictionary containing the answer, context, and question.
+    '''
+
+    input_data = {
+        'question': question,
+        'context': context
+    }
+    output = question_answer_from_context_chain.invoke(input_data)
+    answer = output.answer_based_on_content
+    return {'answer': answer, 'context': context, 'question': question}
+
+
+def show_context(context):
+    '''
+    Display the contents of the provided context list.
+    Args:
+        context(list): A list of context items to be displayed.
+
+    Prints each context item in the list with a heading indicating its position.
+    '''
+
+    for i, c in enumerate(context):
+        print(f'Context {i + 1}:')
+        print(c)
+        print('\n')
+
+
+def read_pdf_to_string(path):
+    '''
+    Read a PDF document from the specified path and return its content as a string.
+    Args:
+        path(str): The file path to the PDF document.
+
+    Returns:
+        str: The concatenated text content of all pages in the PDF document.
+    '''
+
+    doc = fitz.open(path)
+    content = ''
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+        content += page.get_text()
+    return content
+
+
+def bm25_retrieval(bm25: BM25Okapi, cleaned_texts: List[str], query: str, k: int = 5) -> List[str]:
+    '''
+    Perform BM25 retrieval and return the top K cleaned text chunks.
+    Args:
+        bm25: Pre-computed BM25 index.
+        cleaned_texts(List[str]): List of text chunks corresponding to the BM25 index.
+        query(str): The query string.
+        k(int): The number of text chunks to retrieve.
+
+    Returns:
+        List[str]: The top K cleaned text chunks based on BM25 scores.
+    '''
+
+    query_tokens = query.split()
+    bm25_scores = bm25.get_scores(query_tokens)
+    top_k_indices = np.argsort(bm25_scores)[::-1][:k]
+    top_k_texts = [cleaned_texts[i] for i in top_k_indices]
+    return top_k_texts
