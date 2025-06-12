@@ -237,3 +237,40 @@ def bm25_retrieval(bm25: BM25Okapi, cleaned_texts: List[str], query: str, k: int
     top_k_indices = np.argsort(bm25_scores)[::-1][:k]
     top_k_texts = [cleaned_texts[i] for i in top_k_indices]
     return top_k_texts
+
+
+async def exponential_backoff(attempt):
+    '''
+    Implement exponential backoff with a jitter.
+    Args:
+        attempt: The current retry attempt number.
+
+    Waits for a period of time before retrying the operation.
+    The wait time is calculated as (2^attempt)+a random fraction of a second.
+    '''
+
+    wait_time = (2 ** attempt) + random.uniform(0, 1)
+    await asyncio.sleep(wait_time)
+
+
+async def retry_with_exponential_backoff(coroutine, max_retries=5):
+    '''
+    Retries a coroutine using exponential backoff upon encountering a RateLimitError.
+    Args:
+        coroutine: The coroutine to be executed.
+        max_retries: The maximum number of retry attempts.
+
+    Returns:
+        The last encountered exception if all retry attempts fail.
+    '''
+
+    for attempt in range(max_retries):
+        try:
+            return await coroutine
+        except RateLimitError as e:
+            if attempt == max_retries - 1:
+                raise e
+
+            await exponential_backoff(attempt)
+
+    raise Exception('Max retries reached')
