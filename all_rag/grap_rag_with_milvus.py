@@ -8,6 +8,8 @@ from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplat
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from tqdm import tqdm
+from transformers import BertTokenizer, BertForTokenClassification
+from transformers import pipeline
 
 os.environ['OPENAI_API_KEY'] = 'OPENAI_API_KEY'
 
@@ -159,6 +161,40 @@ def milvus_insert(collection_name: str, text_lst: list[str]):
         ]
         milvus_client.insert(collection_name=collection_name, data=batch_data)
 
-milvus_insert(collection_name=relation_col_name,text_lst=relations)
-milvus_insert(collection_name=entity_col_name,text_lst=entities)
-milvus_insert(collection_name=passage_col_name,text_lst=passages)
+
+milvus_insert(collection_name=relation_col_name, text_lst=relations)
+milvus_insert(collection_name=entity_col_name, text_lst=entities)
+milvus_insert(collection_name=passage_col_name, text_lst=passages)
+
+query = "What contribution did the son of Euler's teacher make?"
+
+tokenizer = BertTokenizer.from_pretrained("dbmdz/bert-large-cased-finetuned-conll03-english")
+model = BertForTokenClassification.from_pretrained('dbmdz/bert-large-cased-finetuned-conll03-english')
+
+nlp_ner = pipeline('ner', model=model, tokenizer=tokenizer)
+query_ner_list = [item['word'] for item in nlp_ner(query)]
+
+query_ner_embeddings = [embedding_model.embed_query(query_ner) for query_ner in query_ner_list]
+
+top_k = 3
+
+entity_search_res = milvus_client.search(collection_name=entity_col_name, data=query_ner_embeddings, limit=top_k,
+                                         output_fields=['id'])
+
+query_embedding = embedding_model.embed_query(query)
+
+relation_search_res = \
+    milvus_client.search(collection_name=relation_col_name, data=[query_embedding], limit=top_k, output_fields=['id'])[
+        0]
+
+entity_relation_adj = np.zeros((len(entities), len(relations)))
+for entity_id, entity in enumerate(entities):
+    entity_relation_adj[entity_id, entityid_2_relationids[entity_id]] = 1
+
+entity_relation_adj = csc_matrix(entity_relation_adj)
+
+entity_adj_1_degree = entity_relation_adj @ entity_relation_adj.T
+relation_adj_1_degree = entity_relation_adj.T @ entity_relation_adj
+
+target_degree=1
+
