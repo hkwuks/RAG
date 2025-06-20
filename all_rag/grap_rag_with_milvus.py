@@ -232,3 +232,33 @@ relation_candidate_ids = list(
 relation_candidate_texts = [
     relations[relation_id] for relation_id in relation_candidate_ids
 ]
+
+query_prompt_one_shot_input = '''
+I will provide you with a list of relationship descriptions. Your task is to select 3 relationships that may be useful to answer the given question. Please return a JSON object containing your thought process and a list of the selected relationships in order of their relevance.
+
+Question:
+When was the mother of the leader of the Third Crusade born?
+
+Relationship descriptions:
+[1] Eleanor was born in 1122.
+[2] Eleanor married King Louis VII of France.
+[3] Eleanor was the Duchess of Aquitaine.
+[4] Eleanor participated in the Second Crusade.
+[5] Eleanor had eight children.
+[6] Eleanor was married to Henry II of England.
+[7] Eleanor was the mother of Richard the Lionheart.
+[8] Richard the Lionheart was the King of England.
+[9] Henry II was the father of Richard the Lionheart.
+[10] Henry II was the King of England.
+[11] Richard the Lionheart led the Third Crusade.
+'''
+
+query_prompt_one_shot_output = """{"thought_process": "To answer the question about the birth of the mother of the leader of the Third Crusade, I first need to identify who led the Third Crusade and then determine who his mother was. After identifying his mother, I can look for the relationship that mentions her birth.", "useful_relationships": ["[11] Richard the Lionheart led the Third Crusade", "[7] Eleanor was the mother of Richard the Lionheart", "[1] Eleanor was born in 1122"]}"""
+
+query_prompt_template = """Question:
+{question}
+
+Relationship descriptions:
+{relation_des_str}
+
+"""
