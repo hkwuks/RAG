@@ -196,5 +196,39 @@ entity_relation_adj = csc_matrix(entity_relation_adj)
 entity_adj_1_degree = entity_relation_adj @ entity_relation_adj.T
 relation_adj_1_degree = entity_relation_adj.T @ entity_relation_adj
 
-target_degree=1
+target_degree = 1
 
+entity_adj_target_degree = entity_adj_1_degree
+for _ in range(target_degree):
+    entity_adj_target_degree @= entity_adj_1_degree
+
+relation_adj_target_degree = relation_adj_1_degree
+for _ in range(target_degree):
+    relation_adj_target_degree @= relation_adj_1_degree
+
+entity_relation_adj_target_degree = entity_adj_target_degree @ relation_adj_target_degree.T
+
+expanded_relations_from_relation = {}
+expanded_relations_from_entity = {}
+
+filtered_hit_relation_ids = [relation_res['entity']['id'] for relation_res in relation_search_res]
+for hit_relation_id in filtered_hit_relation_ids:
+    expanded_relations_from_relation.update(relation_adj_target_degree[hit_relation_id].nonzero()[1].tolist())
+
+filtered_hit_entity_ids = [
+    one_entity_res["entity"]["id"]
+    for one_entity_search_res in entity_search_res
+    for one_entity_res in one_entity_search_res
+]
+
+for filtered_hit_entity_id in filtered_hit_entity_ids:
+    expanded_relations_from_entity.update(
+        entity_relation_adj_target_degree[filtered_hit_entity_id].nonzero()[1].tolist())
+
+relation_candidate_ids = list(
+    expanded_relations_from_relation | expanded_relations_from_entity
+)
+
+relation_candidate_texts = [
+    relations[relation_id] for relation_id in relation_candidate_ids
+]
