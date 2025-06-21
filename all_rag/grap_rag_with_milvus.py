@@ -253,12 +253,54 @@ Relationship descriptions:
 [11] Richard the Lionheart led the Third Crusade.
 '''
 
-query_prompt_one_shot_output = """{"thought_process": "To answer the question about the birth of the mother of the leader of the Third Crusade, I first need to identify who led the Third Crusade and then determine who his mother was. After identifying his mother, I can look for the relationship that mentions her birth.", "useful_relationships": ["[11] Richard the Lionheart led the Third Crusade", "[7] Eleanor was the mother of Richard the Lionheart", "[1] Eleanor was born in 1122"]}"""
+query_prompt_one_shot_output = '''{"thought_process": "To answer the question about the birth of the mother of the leader of the Third Crusade, I first need to identify who led the Third Crusade and then determine who his mother was. After identifying his mother, I can look for the relationship that mentions her birth.", "useful_relationships": ["[11] Richard the Lionheart led the Third Crusade", "[7] Eleanor was the mother of Richard the Lionheart", "[1] Eleanor was born in 1122"]}'''
 
-query_prompt_template = """Question:
+query_prompt_template = '''Question:
 {question}
 
 Relationship descriptions:
 {relation_des_str}
 
-"""
+'''
+
+
+def rerank_relations(query: str, relation_candidate_texts: list[str], relation_candidate_ids: list[str]) -> list[int]:
+    '''
+    Rerank candidate relations using LLM to select the most relevant ones for answering a query.
+
+    This function uses a LLM with Chain-of-Thought pormpting to analyze candidate relationships and select the most
+    useful ones for answering the query. It employs a one-shot learning approach with a predefined example to guide the
+    LLM's reasoning process.
+
+    Args:
+        query: The input question that needs to be answered.
+        relation_candidate_texts: List of candidate relationship descriptions.
+        relation_candidate_ids: List of IDs corresponding to the candidate relations.
+
+    Returns:
+        A List of relation IDs ranked by their relevance to the query.
+    '''
+
+    relation_des_str = '\n'.join(
+        map(lambda item: f'[{item[0]}] {item[1]}', zip(relation_candidate_ids, relation_candidate_texts))).strip()
+
+    rerank_prompts = ChatPromptTemplate.from_messages(
+        [
+            HumanMessage(query_prompt_one_shot_input),
+            AIMessage(query_prompt_one_shot_output),
+            HumanMessagePromptTemplate.from_messages(query_prompt_template)
+        ]
+    )
+
+    rerank_chain = (rerank_prompts | llm.bind(response_format={'type': 'json_object'}) | JsonOutputParser())
+
+    rerank_res = rerank_chain.invoke({'question': query, 'relation_des_str': relation_des_str})
+
+    rerank_relation_ids = []
+    rerank_relation_lines = rerank_res['useful_relationships']
+    id2lines = {}
+    for line in rerank_relation_lines:
+        id_ = int(line[line.find("[") + 1: line.find("]")])
+        id2lines[id_] = line.strip()
+        rerank_relation_ids.append(id_)
+    return rerank_relation_ids
