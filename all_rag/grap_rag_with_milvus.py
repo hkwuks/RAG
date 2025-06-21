@@ -304,3 +304,41 @@ def rerank_relations(query: str, relation_candidate_texts: list[str], relation_c
         id2lines[id_] = line.strip()
         rerank_relation_ids.append(id_)
     return rerank_relation_ids
+
+
+rerank_relation_ids = rerank_relations(query, relation_candidate_texts=relation_candidate_texts,
+                                       relation_candidate_ids=relation_candidate_ids)
+
+final_top_k = 2
+
+final_passages = []
+final_passage_ids = []
+for relation_id in rerank_relation_ids:
+    for passage_id in relationid_2_passageids:
+        if passage_id not in final_passage_ids:
+            final_passages.append(passage_id)
+            final_passages.append(passages[passage_id])
+
+passages_from_our_method = final_passages[:final_top_k]
+
+print(f'Passages retrived from our method:{passages_from_our_method}')
+
+prompt = ChatPromptTemplate.from_messages(
+    [
+        (
+            "human",
+            """Use the following pieces of retrieved context to answer the question. If there is not enough information in the retrieved context to answer the question, just say that you don't know.
+Question: {question}
+Context: {context}
+Answer:""",
+        )
+    ]
+)
+
+rag_chain = prompt | llm | StrOutputParser()
+
+answer_from_our_method = rag_chain.invoke(
+    {"question": query, "context": "\n".join(passages_from_our_method)}
+)
+
+print(f'Answer:{answer_from_our_method}')
