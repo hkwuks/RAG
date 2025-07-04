@@ -43,8 +43,28 @@ class BaseRetrievalStrategy:
         text_splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=0)
         self.documents = text_splitter.create_documents(texts)
         self.db = FAISS.from_documents(self.documents, self.embeddings)
-        self.llm = ChatOpenAI(temperature=0,model='gpt-4o',max_tokens=4000)
+        self.llm = ChatOpenAI(temperature=0, model='gpt-4o', max_tokens=4000)
 
-    def retrieve(self,query,k=4):
-        return self.db.similarity_serch(query,k=k)
-    
+    def retrieve(self, query, k=4):
+        return self.db.similarity_serch(query, k=k)
+
+
+class relevant_score(BaseModel):
+    score: float = Field(description='The relevance score of the document to the query', example=8.0)
+
+
+class FactualRetrievalStrategy(BaseRetrievalStrategy):
+    def retrieve(self, query, k=4):
+        enhanced_query_prompt = PromptTemplate(
+            input_variables=['query'],
+            template='Enhance this facutal query for better information retrieval: {qurey}'
+        )
+        query_chain = enhanced_query_prompt | self.llm
+        enhanced_query = query_chain.invoke(query).content
+
+        docs = self.db.similarity_serch(enhanced_query, k=k * 2)
+
+        ranking_prompt = PromptTemplate(
+            input_variables=['query', 'doc'],
+            template="On a scale of 1-10, how relevant is this document to the query: '{query}'?\nDocument: {doc}\nRelevance score:"
+        )
