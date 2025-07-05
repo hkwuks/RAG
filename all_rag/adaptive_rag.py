@@ -2,31 +2,31 @@ import os
 import sys
 from dotenv import load_dotenv
 from langchain.prompts import PromptTemplate
-from langchain.vectorstores import FAISS
-from langchain.embeddings import OpenAIEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain_community.embeddings import OpenAIEmbeddings
 from langchain.text_splitter import CharacterTextSplitter
 from langchain_core.retrievers import BaseRetriever
 from typing import Dict, Any
 from langchain.docstore.document import Document
 from langchain_openai import ChatOpenAI
-from langchain_core.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field
 from helper_functions import *
 from evaluation.evalute_rag import *
 
-load_dotenv()
+# load_dotenv()
 
-os.environ['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY')
+# os.environ['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY')
 
 
 class categories_options(BaseModel):
     category: str = Field(
         description='The category of query, the options are: Factual, Analytical, Opinion, or Contextual',
-        exaple='Factual')
+        examples=['Factual'])
 
 
 class QueryClassifier:
     def __init__(self):
-        self.llm = ChatOpenAI(temperature=0, model_name='gpt-4o', max_tokens=4000)
+        self.llm = ChatOpenAI(temperature=0, model='gpt-4o', max_tokens=4000)
         self.prompt = PromptTemplate(
             input_variables=['query'],
             template='Classify the following query into one of these categories: Factual, Analytical, Opinion, or Contextual.\nQuery:{query}\nCategory:'
