@@ -68,3 +68,13 @@ class FactualRetrievalStrategy(BaseRetrievalStrategy):
             input_variables=['query', 'doc'],
             template="On a scale of 1-10, how relevant is this document to the query: '{query}'?\nDocument: {doc}\nRelevance score:"
         )
+        ranked_chain = ranking_prompt | self.llm.with_structured_output(relevant_score)
+
+        ranked_docs = []
+        for doc in docs:
+            input_data = {'query': enhanced_query, 'doc': doc.page_content}
+            score = float(ranked_chain.invoke(input_data).score)
+            ranked_docs.append((doc,score))
+
+        ranked_docs.sort(key=lambda x:x[1], reverse=True)
+        return [doc for doc,_ in ranked_docs[:k]]
