@@ -5,8 +5,9 @@ from langchain.prompts import PromptTemplate
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import OpenAIEmbeddings
 from langchain.text_splitter import CharacterTextSplitter
+from langchain_core.callbacks import CallbackManagerForRetrieverRun, AsyncCallbackManagerForRetrieverRun
 from langchain_core.retrievers import BaseRetriever
-from typing import Dict, Any
+from typing import Dict, Any, List
 from langchain.docstore.document import Document
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
@@ -19,7 +20,7 @@ from evaluation.evalute_rag import *
 # os.environ['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY')
 
 
-class categories_options(BaseModel):
+class CategoriesOptions(BaseModel):
     category: str = Field(
         description='The category of query, the options are: Factual, Analytical, Opinion, or Contextual',
         examples=['Factual'])
@@ -32,7 +33,7 @@ class QueryClassifier:
             input_variables=['query'],
             template='Classify the following query into one of these categories: Factual, Analytical, Opinion, or Contextual.\nQuery:{query}\nCategory:'
         )
-        self.chain = self.prompt | self.llm.with_structured_output(categories_options)
+        self.chain = self.prompt | self.llm.with_structured_output(CategoriesOptions)
 
     def classify(self, query):
         return self.chain.invoke(query).category
@@ -43,15 +44,15 @@ class BaseRetrievalStrategy:
         self.embeddings = OpenAIEmbeddings()
         text_splitter = CharacterTextSplitter(chunk_size=800, chunk_overlap=0)
         self.documents = text_splitter.create_documents(texts)
-        self.db = FAISS.from_documents(self.documents, self.embeddings)
+        self.db = FAISS.from_texts(self.documents, self.embeddings)
         self.llm = ChatOpenAI(temperature=0, model='gpt-4o', max_tokens=4000)
 
     def retrieve(self, query, k=4):
-        return self.db.similarity_serch(query, k=k)
+        return self.db.similarity_search(query, k=k)
 
 
-class relevant_score(BaseModel):
-    score: float = Field(description='The relevance score of the document to the query', example=8.0)
+class RelevantScore(BaseModel):
+    score: float = Field(description='The relevance score of the document to the query', examples=[8.0])
 
 
 class FactualRetrievalStrategy(BaseRetrievalStrategy):
@@ -65,13 +66,13 @@ class FactualRetrievalStrategy(BaseRetrievalStrategy):
         query_chain = enhanced_query_prompt | self.llm
         enhanced_query = query_chain.invoke(query).content
 
-        docs = self.db.similarity_serch(enhanced_query, k=k * 2)
+        docs = self.db.similarity_search(enhanced_query, k=k * 2)
 
         ranking_prompt = PromptTemplate(
             input_variables=['query', 'doc'],
             template="On a scale of 1-10, how relevant is this document to the query: '{query}'?\nDocument: {doc}\nRelevance score:"
         )
-        ranked_chain = ranking_prompt | self.llm.with_structured_output(relevant_score)
+        ranked_chain = ranking_prompt | self.llm.with_structured_output(RelevantScore)
 
         ranked_docs = []
         for doc in docs:
@@ -109,7 +110,7 @@ class AnalyticalRetrievalStrategy(BaseRetrievalStrategy):
 
         all_docs = []
         for sub_query in sub_queries:
-            all_docs.extend(self.db.similarity_serch(sub_query, k=2))
+            all_docs.extend(self.db.similarity_search(sub_query, k=2))
 
         diversity_prompt = PromptTemplate(
             input_variables=['query', 'doc', 'k'],
@@ -135,7 +136,7 @@ class OpinionRetrievalStrategy(BaseRetrievalStrategy):
 
         all_docs = []
         for viewpoint in viewpoints:
-            all_docs.extend(self.db.similarity_serch(f'{query} {viewpoint}', k=2))
+            all_docs.extend(self.db.similarity_search(f'{query} {viewpoint}', k=2))
 
         # Use LLM to classify and select diverse opinions
         opinion_prompt = PromptTemplate(
@@ -147,3 +148,63 @@ class OpinionRetrievalStrategy(BaseRetrievalStrategy):
         input_data = {'query': query, 'docs': docs_text, 'k': k}
         selected_indices = opinion_chain.invoke(input_data).indices
         return [all_docs[int(i)] for i in selected_indices if i.isdigit() and int(i) < len(all_docs)]
+
+
+class ContextualRetrievalStrategy(BaseRetrievalStrategy):
+    def retrieve(self, query, k=4, user_context=None):
+        # Use LLM to incorporate user context into the query
+        context_prompt = PromptTemplate(
+            input_variables=['query', 'context'],
+            template="Given the user context:{context}\nReformulate the query to best address the user's needs: {query}"
+        )
+        context_chain = context_prompt | self.llm
+        input_data = {'query': query, 'context': user_context or 'No specific context provided'}
+        contextualized_query = context_chain.invoke(input_data).context
+
+        # Retrieve documents using the contextualized query
+        docs = self.db.similarity_search(contextualized_query, k=k * 2)
+
+        # Use LLM to rank the relevance of retrieved documents considering the user context
+        ranking_prompt = PromptTemplate(
+            input_variables=['query', 'context', 'doc'],
+            template="Given the query: {query} and user context: {context}, rate the relevance of this document on a scale of 1-10:\nDocument: {doc}\nRelevance socre:"
+        )
+        ranking_chain = ranking_prompt | self.llm.with_structured_output(RelevantScore)
+
+        ranked_docs = []
+        for doc in docs:
+            input_data = {'query': contextualized_query, 'context': user_context or 'No specific context provided',
+                          'doc': doc.page_content}
+            score = float(ranking_chain.invoke(input_data).score)
+            ranked_docs.append((doc, score))
+
+        ranked_docs.sort(key=lambda x: x[1], reverse=True)
+        return [doc for doc, _ in ranked_docs[:k]]
+
+
+class AdaptiveRetriever:
+    def __init__(self, texts: List[str]):
+        self.classifier = QueryClassifier()
+        self.strategies = {
+            'Factual': FactualRetrievalStrategy(texts),
+            'Analytical': AnalyticalRetrievalStrategy(texts),
+            'Opinion': OpinionRetrievalStrategy(texts),
+            'Contextual': ContextualRetrievalStrategy(texts)
+        }
+
+    def get_relevant_documents(self, query: str) -> List[Document]:
+        category = self.classifier.classify(query)
+        strategy = self.strategies[category]
+        return strategy.retrieve(query)
+
+
+class PydanticRetriever(BaseRetriever):
+    adaptive_retriever: AdaptiveRetriever = Field(exclude=True)
+
+    class Config:
+        arbitrary_types_allowed = True
+
+    def _get_relevant_documents(
+            self, query: str, *, run_manager: CallbackManagerForRetrieverRun
+    ) -> list[Document]:
+        return self.adaptive_retriever.get_relevant_documents(query)
