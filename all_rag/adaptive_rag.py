@@ -208,3 +208,27 @@ class PydanticRetriever(BaseRetriever):
             self, query: str, *, run_manager: CallbackManagerForRetrieverRun
     ) -> list[Document]:
         return self.adaptive_retriever.get_relevant_documents(query)
+
+
+class AdaptiveRAG:
+    def __init__(self, texts: List[str]):
+        adaptive_retriever = AdaptiveRetriever(texts)
+        self.retriever = PydanticRetriever(adaptive_retriever=adaptive_retriever)
+        self.llm = ChatOpenAI(temperature=0, model='gpt-4o', max_tokens=4000)
+
+        prompt_template = '''Use the following pieces of context to answer the question at the end.
+        If you don't know the answer, just say that you don't know, don't try to make up an answer.
+        
+        {context}
+        
+        Question: {question}
+        
+        Answer:'''
+        prompt = PromptTemplate(template=prompt_template, input_variables=['context', 'question'])
+
+        self.llm_chain = prompt | self.llm
+
+    def answer(self, query: str) -> str:
+        docs = self.retriever.get_relevant_documents(query)
+        input_data = {'context': '\n'.join((doc.page_content for doc in docs)), 'question': query}
+        return self.llm_chain.invoke(input_data)
